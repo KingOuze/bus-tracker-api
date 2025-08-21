@@ -1,6 +1,5 @@
 const Prediction = require("../models/Prediction")
 const Bus = require("../models/Bus")
-const Line = require("../models/Line")
 const cron = require("node-cron")
 
 class PredictionService {

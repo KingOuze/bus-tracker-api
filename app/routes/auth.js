@@ -1,6 +1,5 @@
 const express = require("express")
 const { body, validationResult } = require("express-validator")
-const bcrypt = require("bcryptjs")
 const jwt = require("jsonwebtoken")
 const User = require("../models/User")
 const { authenticateToken } = require("../middleware/auth")
@@ -213,20 +212,23 @@ router.put(
   },
 )
 
-router.post("validate", async (req, res) => {
-  const {token} = req.body
-
+router.post("/validate", async (req, res, next) => {
+  
+  const { token } = req.body; 
+  console.log("Validation du token JWT :", token);
   if (!token) {
     return res.status(401).json({ message: "Token manquant" });
   }
-
+  // Vérifier le token JWT
   jwt.verify(token, process.env.JWT_SECRET || "your-secret-key", (err, decoded) => {
     if (err) {
       return res.status(403).json({ message: "Token invalide ou expiré" });
     }
-    req.user = decoded; // Ajoute les données décodées au req
-    next();
+    req.user = decoded; // Ajoute les données décodées à la requête
+    console.log("Token validé avec succès :", req.user);
+    res.status(200).json({ message: "Token valide", user: req.user });
   });
-})
+});
+
 
 module.exports = router
