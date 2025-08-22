@@ -5,7 +5,9 @@ const { authenticateToken, authorizeRoles } = require("../middleware/auth")
 const { createStop, 
         getStops, 
         getStopById, 
-        updateStop, 
+        updateStop,
+        addLinesToStop, 
+        removeLinesFromStop,
         deleteStop } = require("../controllers/stopController")
 
 const router = express.Router()
@@ -36,9 +38,10 @@ router.post(
   authorizeRoles("admin", "operator"),
   [
     body("name").isString().notEmpty().withMessage("Le nom de l'arrêt est requis"),
-    body("location").isObject().withMessage("La localisation est requise"),
-    body("location.latitude").isFloat({ min: -90, max: 90 }).withMessage("Latitude invalide"),
-    body("location.longitude").isFloat({ min: -180, max: 180 }).withMessage("Longitude invalide"),
+    body("address").isString().notEmpty().withMessage("L'adresse de l'arrêt est requise"),
+    body("latitude").isFloat({ min: -90, max: 90 }).withMessage("Latitude invalide"),
+    body("longitude").isFloat({ min: -180, max: 180 }).withMessage("Longitude invalide"),
+    body("status").optional().isString().isIn(["active", "inactive"]).withMessage("Statut invalide"),
   ],
   handleValidationErrors,
   createStop,
@@ -52,9 +55,10 @@ router.put(
   [
     param("id").isString().notEmpty(),
     body("name").optional().isString().notEmpty(),
-    body("location").optional().isObject(),
-    body("location.latitude").optional().isFloat({ min: -90, max: 90 }),
-    body("location.longitude").optional().isFloat({ min: -180, max: 180 }),
+    body("status").optional().isString().isIn(["active", "inactive"]),
+    body("address").optional().isString().notEmpty(),
+    body("latitude").optional().isFloat({ min: -90, max: 90 }),
+    body("longitude").optional().isFloat({ min: -180, max: 180 }),
   ],
   handleValidationErrors,
   updateStop,
@@ -68,5 +72,32 @@ router.delete(
     [param("id").isString().notEmpty()],
     handleValidationErrors,
     deleteStop)
+
+    router.patch(
+  "/:id/lines",
+  authenticateToken,
+  authorizeRoles("admin", "operator"),
+  [
+    param("id").isString().notEmpty(),
+    body("lines").isArray({ min: 1 }).withMessage("Vous devez fournir au moins une ligne"),
+    body("lines.*").isMongoId().withMessage("ID de ligne invalide"),
+  ],
+  handleValidationErrors,
+  addLinesToStop
+)
+
+router.patch(
+  "/:id/remove-lines",
+  authenticateToken,
+  authorizeRoles("admin", "operator"),
+  [
+    param("id").isString().notEmpty(),
+    body("lines").isArray({ min: 1 }).withMessage("Vous devez fournir au moins une ligne à retirer"),
+    body("lines.*").isMongoId().withMessage("ID de ligne invalide"),
+  ],
+  handleValidationErrors,
+  removeLinesFromStop
+)
+
 
 module.exports = router

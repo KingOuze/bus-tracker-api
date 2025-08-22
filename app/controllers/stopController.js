@@ -5,10 +5,12 @@ const Stop = require("../models/Stop")
 exports.createStop = async (req, res) => {
   try {
     const stop = new Stop(req.body)
+    console.log("Creating stop:", stop)
     await stop.save()
     res.status(201).json(stop)
   } catch (err) {
-    res.status(400).json({ error: err.message })
+    console.log(err)
+    res.status(500).json({ error: err })
   }
 }
 
@@ -51,5 +53,35 @@ exports.deleteStop = async (req, res) => {
     res.json({ message: "Arrêt supprimé" })
   } catch (err) {
     res.status(500).json({ error: err.message })
+  }
+}
+
+exports.addLinesToStop = async (req, res) => {
+  try {
+    const { lines } = req.body
+    const stop = await Stop.findByIdAndUpdate(
+      req.params.id,
+      { $addToSet: { lines: { $each: lines } } },
+      { new: true }
+    ).populate("lines")
+    if (!stop) return res.status(404).json({ error: "Arrêt introuvable" })
+    res.json(stop)
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+}
+
+exports.removeLinesFromStop = async (req, res) => {
+  try {
+    const { lines } = req.body
+    const stop = await Stop.findByIdAndUpdate(
+      req.params.id,
+      { $pull: { lines: { $in: lines } } },
+      { new: true }
+    ).populate("lines")
+    if (!stop) return res.status(404).json({ error: "Arrêt introuvable" })
+    res.json(stop)
+  } catch (err) {
+    res.status(400).json({ error: err.message })
   }
 }

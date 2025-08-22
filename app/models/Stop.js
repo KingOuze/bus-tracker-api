@@ -2,24 +2,26 @@
 const mongoose = require("mongoose")
 
 const stopSchema = new mongoose.Schema({
-  stopId: {
-    type: String,
-    required: true,
-    unique: true,
-  },
   name: {
     type: String,
     required: true,
   },
-  location: {
-    latitude: {
-      type: Number,
-      required: true,
-    },
-    longitude: {
-      type: Number,
-      required: true,
-    },
+  address: {
+    type: String,
+    required: true,
+  },
+  latitude: {
+    type: Number,
+    required: true,
+  },
+  longitude: {
+    type: Number,
+    required: true,
+  },
+  status: {
+    type: String,
+    enum: ["active", "inactive"],
+    default: "active",
   },
   accessibility: {
     wheelchairAccessible: { type: Boolean, default: false },
