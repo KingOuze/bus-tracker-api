@@ -8,10 +8,14 @@ const { createLine,
         updateLine, 
         deleteLine, 
         getStopsByLine, 
-        addStopToLine, 
+        addStopToLine,
+        reorderStops, 
         removeStopFromLine } = require("../controllers/lineController")
 
 const router = express.Router()
+const LineStop = require("../models/LineStop")
+const Line = require("../models/Line")
+const Stop = require("../models/Stop")
 
 
 // GET /api/lines - Obtenir toutes les lignes
@@ -81,30 +85,37 @@ router.get("/:lineId/stops", [param("lineId").isString().notEmpty()], handleVali
 
 //assigner des arrêts à une lign
 router.post(
-  "/:lineId/stops",
+  "/stops",
   authenticateToken,
   authorizeRoles("admin", "operator"),
   [
-    param("lineId").isString().notEmpty(),
-    body("stopIds").isArray().withMessage("stopIds doit être un tableau d'IDs d'arrêts"),
-    body("stopIds.*").isString().notEmpty().withMessage("Chaque ID d'arrêt doit être une chaîne non vide"),
+    body("lineId").isString().notEmpty().withMessage("l'ID du line doit être une chaîne non vide"),
+    body("stopId").isString().notEmpty().withMessage("l'ID de l'arrêt doit être une chaîne non vide"),
+    query("direction").isIn(["go", "return"]).withMessage("La direction doit être 'go' ou 'return'"),
   ],
   handleValidationErrors,
   addStopToLine
 )
 
-// DELETE /api/lines/:lineId/stops - Supprimer des arrêts d'une ligne
+// DELETE /api/lines/stops?direction - Supprimer des arrêts d'une ligne
 router.delete(
-  "/:lineId/stops",
+  "/:lineId/stops/:stopId",
   authenticateToken,
   authorizeRoles("admin", "operator"),
   [
-    param("lineId").isString().notEmpty(),
-    body("stopIds").isArray().withMessage("stopIds doit être un tableau d'IDs d'arrêts"),
-    body("stopIds.*").isString().notEmpty().withMessage("Chaque ID d'arrêt doit être une chaîne non vide"),
+    param("lineId").isMongoId(),
+    param("stopId").isMongoId(),
+    query("direction").isIn(["go", "return"]),
   ],
   handleValidationErrors,
   removeStopFromLine
 )
+
+// POST /api/lines/:lineId/stops/reorder - Réordonner les arrêts d'une ligne
+router.post("/lines/:lineId/stops/reorder",
+  authenticateToken,
+  authorizeRoles("admin", "operator"),
+  reorderStops)
+
 
 module.exports = router

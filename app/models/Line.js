@@ -31,7 +31,7 @@ const lineSchema = new mongoose.Schema(
     },
     company: {
       type: String,
-      enum: ["DDD", "TATA", "companyC"],
+      enum: ["DDD", "TATA", "BRT", "TER"],
       default: "DDD",
     },
     stops: [
@@ -47,15 +47,7 @@ const lineSchema = new mongoose.Schema(
 // Index pour les recherches
 lineSchema.index({ lineId: 1 })
 lineSchema.index({ status: 1 })
-lineSchema.index({ "route.outbound.location": "2dsphere" })
-lineSchema.index({ "route.inbound.location": "2dsphere" })
 
-// Méthode pour obtenir tous les arrêts
-lineSchema.methods.getAllStops = function () {
-  const outbound = this.route.outbound || []
-  const inbound = this.route.inbound || []
-  return [...outbound, ...inbound]
-}
 
 // Méthode pour trouver l'arrêt le plus proche
 lineSchema.methods.findNearestStop = function (lat, lng, maxDistance = 1) {

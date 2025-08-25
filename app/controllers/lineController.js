@@ -1,6 +1,7 @@
 // controllers/lineController.js
 const Line = require("../models/Line")
 const Stop = require("../models/Stop")
+const LineStop = require("../models/LineStop")
 
 
 // Créer une ligne
@@ -130,8 +131,12 @@ exports.deleteLine = async (req, res) => {
 // Ajouter un arrêt à une ligne
 exports.addStopToLine = async (req, res) => {
   try {
-    const { lineId, stopId } = req.body
+    const { direction } = req.query
+    if (!["go", "return"].includes(direction)) {
+      return res.status(400).json({ error: "Direction invalide. Utilisez 'go' ou 'return'." })
+    }
 
+    const { lineId, stopId, order } = req.body;
     const line = await Line.findById(lineId)
     const stop = await Stop.findById(stopId)
 
@@ -140,17 +145,16 @@ exports.addStopToLine = async (req, res) => {
     }
 
     // Éviter les doublons
-    if (!line.stops.includes(stop._id)) {
-      line.stops.push(stop._id)
-      await line.save()
+     const lineStop = await LineStop.findOne({ lineId: lineId, stopId: stopId, direction: direction })
+    if (lineStop) {
+        return res.status(400).json({ error: "L'arrêt est déjà assigné à cette ligne" })
     }
+    
+  
+    const newLineStop = new LineStop({ lineId: lineId, stopId: stopId, order: order, direction: direction })
+    await newLineStop.save()
 
-    if (!stop.lines.includes(line._id)) {
-      stop.lines.push(line._id)
-      await stop.save()
-    }
-
-    res.json({ message: "Arrêt ajouté à la ligne", line, stop })
+    res.json({ message: "Arrêt ajouté à la ligne", newLineStop })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -159,40 +163,70 @@ exports.addStopToLine = async (req, res) => {
 // Retirer un arrêt d’une ligne
 exports.removeStopFromLine = async (req, res) => {
   try {
-    const { lineId, stopId } = req.body
+    const { direction } = req.query;
+    const { lineId, stopId } = req.body;
 
-    const line = await Line.findById(lineId)
-    const stop = await Stop.findById(stopId)
+    const line = await Line.findById(lineId);
+    const stop = await Stop.findById(stopId);
 
     if (!line || !stop) {
-      return res.status(404).json({ error: "Ligne ou arrêt introuvable" })
+      return res.status(404).json({ error: "Ligne ou arrêt introuvable" });
     }
 
-    line.stops = line.stops.filter((s) => s.toString() !== stopId)
-    await line.save()
+    const lineStop = await LineStop.findOne({ lineId, stopId, direction });
+    if (!lineStop) {
+      return res.status(400).json({ error: "L'arrêt n'est pas assigné à cette ligne" });
+    }
 
-    stop.lines = stop.lines.filter((l) => l.toString() !== lineId)
-    await stop.save()
+    await LineStop.deleteOne({ lineId, stopId, direction });
 
-    res.json({ message: "Arrêt retiré de la ligne", line, stop })
+    res.json({ message: "Arrêt retiré de la ligne" });
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: err.message });
   }
-}
+};
 
-// Obtenir les arrêts d'une ligne
+
+// Obtenir les arrêts d'une ligne classés par direction
 exports.getStopsByLine = async (req, res) => {
   try {
-    const line = await Line.findById(req.params.lineId).populate("stops")
-
+    const line = await Line.findById(req.params.lineId)
     if (!line) {
-      return res.status(404).json({
-        error: "Ligne non trouvée",
-        message: `La ligne ${req.params.lineId} n'existe pas`,
-      })
+      return res.status(404).json({ error: "Ligne non trouvée" })
     }
 
-    res.json(line.stops)
+    // Récupérer les LineStops (avec direction et ordre)
+    console.log("line id: " + line._id)
+    const lineStops = await LineStop.find({ lineId: line._id })
+      .populate("stopId") // ramène les détails du Stop
+      .sort({ order: 1 }) // trie par ordre croissant
+
+      console.log(lineStops)
+    if (!lineStops || lineStops.length === 0) {
+      return res.status(404).json({ error: "Aucun arrêt trouvé pour cette ligne" })
+    }
+
+    // Séparer en deux listes : "go" et "return"
+    const goStops = lineStops
+      .filter(ls => ls.direction === "go")
+      .map(ls => ({
+        ...ls.stopId.toObject(),
+        order: ls.order,
+      }))
+
+    const returnStops = lineStops
+      .filter(ls => ls.direction === "return")
+      .map(ls => ({
+        ...ls.stopId.toObject(),
+        order: ls.order,
+      }))
+
+    res.json({
+      stops : {
+        go: goStops,
+        return: returnStops,
+      }
+    })
   } catch (error) {
     res.status(500).json({
       error: "Erreur serveur",
@@ -200,3 +234,28 @@ exports.getStopsByLine = async (req, res) => {
     })
   }
 }
+
+// Réordonner les arrêts d'une ligne
+exports.reorderStops = async (req, res) => {
+  try {
+    const { lineId } = req.params
+    const { direction, stops } = req.body
+
+    if (!lineId || !direction || !stops) {
+      return res.status(400).json({ error: "lineId, direction et stops sont requis" })
+    }
+
+    // Mise à jour en batch des orders
+    for (const stop of stops) {
+      await LineStop.findOneAndUpdate(
+        { lineId, stopId: stop._id, direction },
+        { order: stop.order }
+      )
+    }
+
+    res.json({ message: "Ordre des arrêts mis à jour avec succès" })
+  } catch (error) {
+    res.status(500).json({ error: "Erreur serveur", message: error.message })
+  }
+}
+

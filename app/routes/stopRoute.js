@@ -6,8 +6,6 @@ const { createStop,
         getStops, 
         getStopById, 
         updateStop,
-        addLinesToStop, 
-        removeLinesFromStop,
         deleteStop } = require("../controllers/stopController")
 
 const router = express.Router()
@@ -72,32 +70,6 @@ router.delete(
     [param("id").isString().notEmpty()],
     handleValidationErrors,
     deleteStop)
-
-    router.patch(
-  "/:id/lines",
-  authenticateToken,
-  authorizeRoles("admin", "operator"),
-  [
-    param("id").isString().notEmpty(),
-    body("lines").isArray({ min: 1 }).withMessage("Vous devez fournir au moins une ligne"),
-    body("lines.*").isMongoId().withMessage("ID de ligne invalide"),
-  ],
-  handleValidationErrors,
-  addLinesToStop
-)
-
-router.patch(
-  "/:id/remove-lines",
-  authenticateToken,
-  authorizeRoles("admin", "operator"),
-  [
-    param("id").isString().notEmpty(),
-    body("lines").isArray({ min: 1 }).withMessage("Vous devez fournir au moins une ligne à retirer"),
-    body("lines.*").isMongoId().withMessage("ID de ligne invalide"),
-  ],
-  handleValidationErrors,
-  removeLinesFromStop
-)
 
 
 module.exports = router
