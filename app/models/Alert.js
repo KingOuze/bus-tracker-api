@@ -1,148 +1,144 @@
-const mongoose = require("mongoose")
+const mongoose = require('mongoose');
 
-const alertSchema = new mongoose.Schema(
-  {
-    alertId: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    type: {
-      type: String,
-      enum: ["info", "warning", "error", "success", "maintenance", "disruption"],
-      required: true,
-    },
-    severity: {
-      type: String,
-      enum: ["low", "medium", "high", "critical"],
-      required: true,
-    },
-    title: {
-      type: String,
-      required: true,
-    },
-    message: {
-      type: String,
-      required: true,
-    },
-    description: String,
-    affectedLines: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Line",
-      },
-    ],
-    affectedStops: [String],
-    affectedBuses: [String],
-    location: {
-      latitude: Number,
-      longitude: Number,
-      radius: Number, // en mètres
-    },
-    status: {
-      type: String,
-      enum: ["active", "resolved", "scheduled", "cancelled"],
-      default: "active",
-    },
-    priority: {
+const alertSchema = new mongoose.Schema({
+  alertId: {
+    type: String,
+    unique: true,
+    required: true
+  },
+  type: {
+    type: String,
+    enum: ['info', 'warning', 'error', 'success', 'maintenance', 'disruption'],
+    required: true
+  },
+  severity: {
+    type: String,
+    enum: ['low', 'medium', 'high', 'critical'],
+    required: true
+  },
+  title: {
+    type: String,
+    required: true,
+    maxlength: 200
+  },
+  message: {
+    type: String,
+    required: true,
+    maxlength: 1000
+  },
+  description: {
+    type: String,
+    maxlength: 2000
+  },
+  source: {
+    type: String,
+    enum: ['system', 'operator', 'prediction', 'external', 'user'],
+    required: true
+  },
+  category: {
+    type: String,
+    enum: ['delay', 'cancellation', 'route_change', 'technical', 'weather', 'traffic', 'event'],
+    required: true
+  },
+  priority: {
+    type: Number,
+    required: true,
+    min: 1,
+    max: 10,
+    default: 5
+  },
+  status: {
+    type: String,
+    enum: ['active', 'investigating', 'resolved', 'closed'],
+    default: 'active'
+  },
+  affectedLines: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Line'
+  }],
+  affectedStops: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Stop'
+  }],
+  affectedBuses: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Bus'
+  }],
+  location: {
+    latitude: {
       type: Number,
-      min: 1,
-      max: 10,
-      default: 5,
+      min: -90,
+      max: 90
     },
-    source: {
-      type: String,
-      enum: ["system", "operator", "prediction", "external", "user"],
-      required: true,
+    longitude: {
+      type: Number,
+      min: -180,
+      max: 180
     },
-    category: {
-      type: String,
-      enum: ["delay", "cancellation", "route_change", "technical", "weather", "traffic", "event"],
-      required: true,
-    },
-    startTime: {
-      type: Date,
-      default: Date.now,
-    },
-    endTime: Date,
-    estimatedDuration: Number, // en minutes
-    impact: {
-      delayMinutes: Number,
-      affectedPassengers: Number,
-      alternativeRoutes: [String],
-    },
-    actions: [
-      {
-        type: String,
-        description: String,
-        completedAt: Date,
-      },
-    ],
-    notifications: {
-      sent: {
-        type: Boolean,
-        default: false,
-      },
-      sentAt: Date,
-      channels: [String], // email, sms, push, app
-      recipients: Number,
-    },
-    metadata: {
-      createdBy: String,
-      updatedBy: String,
-      tags: [String],
-      externalId: String,
-    },
+    radius: {
+      type: Number,
+      min: 0,
+      default: 1000 // mètres
+    }
   },
-  {
-    timestamps: true,
+  startTime: {
+    type: Date,
+    required: true,
+    default: Date.now
   },
-)
-
-// Index pour les requêtes de performance
-alertSchema.index({ status: 1, startTime: -1 })
-alertSchema.index({ affectedLines: 1, status: 1 })
-alertSchema.index({ type: 1, severity: 1 })
-alertSchema.index({ location: "2dsphere" })
-alertSchema.index({ startTime: 1, endTime: 1 })
-
-// Méthode pour résoudre l'alerte
-alertSchema.methods.resolve = function (resolvedBy) {
-  this.status = "resolved"
-  this.endTime = new Date()
-  this.metadata.updatedBy = resolvedBy
-  return this.save()
-}
-
-// Méthode pour calculer la durée
-alertSchema.virtual("duration").get(function () {
-  if (this.endTime) {
-    return Math.round((this.endTime - this.startTime) / (1000 * 60)) // en minutes
+  endTime: {
+    type: Date
+  },
+  estimatedDuration: {
+    type: Number, // en minutes
+    min: 0
+  },
+  impact: {
+    delayMinutes: {
+      type: Number,
+      min: 0
+    },
+    affectedPassengers: {
+      type: Number,
+      min: 0
+    },
+    alternativeRoutes: [{
+      type: String
+    }]
+  },
+  // Informations automatiques
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  resolvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  resolvedAt: Date
+}, {
+  timestamps: true,
+  toJSON: { 
+    transform: function(doc, ret) {
+      ret.id = ret._id;
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
   }
-  return Math.round((new Date() - this.startTime) / (1000 * 60))
-})
+});
 
-// Méthode pour vérifier si l'alerte affecte une position
-alertSchema.methods.affectsLocation = function (lat, lng) {
-  if (!this.location || !this.location.latitude || !this.location.longitude) {
-    return false
+// Index pour les requêtes fréquentes
+alertSchema.index({ status: 1, startTime: 1 });
+alertSchema.index({ severity: 1, type: 1 });
+alertSchema.index({ location: '2dsphere' });
+
+// Middleware pour générer automatiquement l'alertId
+alertSchema.pre('save', function(next) {
+  if (!this.alertId) {
+    this.alertId = `ALT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
   }
+  next();
+});
 
-  const distance = this.calculateDistance(lat, lng, this.location.latitude, this.location.longitude)
-
-  return distance <= this.location.radius / 1000 // convertir en km
-}
-
-// Méthode utilitaire pour calculer la distance
-alertSchema.methods.calculateDistance = (lat1, lng1, lat2, lng2) => {
-  const R = 6371
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLng = ((lng2 - lng1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
-}
-
-module.exports = mongoose.model("Alert", alertSchema)
+module.exports = mongoose.model('Alert', alertSchema);

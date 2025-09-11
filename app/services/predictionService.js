@@ -1,15 +1,17 @@
 const Prediction = require("../models/Prediction")
 const Bus = require("../models/Bus")
 const cron = require("node-cron")
+const redisClient = require('../config/redis');
 
 class PredictionService {
+  
   constructor() {
     this.algorithms = {
       linear_regression: this.linearRegression.bind(this),
       exponential_moving_average: this.exponentialMovingAverage.bind(this),
       seasonal_analysis: this.seasonalAnalysis.bind(this),
       ensemble: this.ensemblePrediction.bind(this),
-    }
+    };
   }
 
   // Régression linéaire
@@ -157,46 +159,37 @@ class PredictionService {
 
     return { factors, impactMultiplier }
   }
-
-  // Générer des prédictions pour tous les bus actifs
+  
   async generatePredictions() {
     try {
-      console.log("🔮 Génération des prédictions...")
-
-      const activeBuses = await Bus.find({ status: "active" }).populate("lineId").limit(100)
-
-      const predictions = []
+      console.log("🔮 Génération des prédictions...");
+      const activeBuses = await Bus.find({ status: "active" }).populate("lineId").limit(100);
+      const predictions = [];
 
       for (const bus of activeBuses) {
-        // Obtenir les données historiques de retard
-        const historicalDelays = await this.getHistoricalDelays(bus.busId, 30)
-
-        // Simuler des conditions externes
+        const historicalDelays = await this.getHistoricalDelays(bus.busId, 30);
         const externalFactors = this.calculateExternalFactors(
           { condition: "sunny", temperature: 20 },
           { level: "moderate" },
-          [],
-        )
+          []
+        );
 
-        // Générer des prédictions avec différents algorithmes
         for (const [algorithm, predictor] of Object.entries(this.algorithms)) {
-          const horizons = [15, 30, 60, 120] // 15min, 30min, 1h, 2h
-
+          const horizons = [15, 30, 60, 120];
           for (const horizon of horizons) {
-            const basePredictions = predictor(historicalDelays, 1)
-            const adjustedPrediction = basePredictions[0] * externalFactors.impactMultiplier
-
-            const confidence = Math.max(60, 95 - (horizon / 15) * 5)
+            const basePredictions = predictor(historicalDelays, 1);
+            const adjustedPrediction = basePredictions[0] * externalFactors.impactMultiplier;
+            const confidence = Math.max(60, 95 - (horizon / 15) * 5);
 
             const prediction = new Prediction({
               busId: bus.busId,
               lineId: bus.lineId._id,
               stopId: bus.nextStop,
               predictionType: "delay",
-              algorithm: algorithm,
+              algorithm,
               predictedValue: Math.min(30, Math.max(0, adjustedPrediction)),
-              confidence: confidence,
-              horizon: horizon,
+              confidence,
+              horizon,
               factors: externalFactors.factors,
               externalFactors: {
                 weather: { condition: "sunny", temperature: 20, impact: 0.05 },
@@ -204,83 +197,68 @@ class PredictionService {
                 events: [],
               },
               expiresAt: new Date(Date.now() + horizon * 60 * 1000),
-            })
+            });
 
-            predictions.push(prediction)
+            predictions.push(prediction);
           }
         }
       }
 
-      // Sauvegarder toutes les prédictions
       if (predictions.length > 0) {
-        await Prediction.insertMany(predictions)
-        console.log(`✅ ${predictions.length} prédictions générées`)
+        await Prediction.insertMany(predictions);
+
+        // ⚡️ Invalidate Redis cache pour les prédictions et stats
+        await redisClient.flushAll(); // simple et efficace pour cette situation
+
+        console.log(`✅ ${predictions.length} prédictions générées et cache mis à jour`);
       }
     } catch (error) {
-      console.error("❌ Erreur lors de la génération des prédictions:", error)
+      console.error("❌ Erreur lors de la génération des prédictions:", error);
     }
   }
 
-  // Obtenir les données historiques de retard
-  async getHistoricalDelays(busId, days = 30) {
-    const startDate = new Date()
-    startDate.setDate(startDate.getDate() - days)
-
-    // Simuler des données historiques (en production, récupérer depuis la DB)
-    const delays = []
-    for (let i = 0; i < days; i++) {
-      delays.push(Math.random() * 10 + Math.sin(i * 0.1) * 3 + 2)
-    }
-
-    return delays
-  }
-
-  // Valider les prédictions expirées
   async validateExpiredPredictions() {
     try {
       const expiredPredictions = await Prediction.find({
         expiresAt: { $lt: new Date() },
         actualValue: { $exists: false },
-      })
+      });
 
       for (const prediction of expiredPredictions) {
-        // Simuler une valeur réelle (en production, récupérer depuis les données réelles)
-        const actualValue = prediction.predictedValue + (Math.random() - 0.5) * 4
-        await prediction.validate(actualValue)
+        const actualValue = prediction.predictedValue + (Math.random() - 0.5) * 4;
+        await prediction.validate(actualValue);
       }
 
-      console.log(`✅ ${expiredPredictions.length} prédictions validées`)
+      // ⚡️ Invalidate Redis cache après validation
+      await redisClient.flushAll();
+
+      console.log(`✅ ${expiredPredictions.length} prédictions validées et cache mis à jour`);
     } catch (error) {
-      console.error("❌ Erreur lors de la validation:", error)
+      console.error("❌ Erreur lors de la validation:", error);
     }
   }
 
-  // Démarrer les mises à jour automatiques
   startPredictionUpdates() {
-    // Générer des prédictions toutes les 5 minutes
-    cron.schedule("*/5 * * * *", () => {
-      this.generatePredictions()
-    })
-
-    // Valider les prédictions toutes les minutes
-    cron.schedule("* * * * *", () => {
-      this.validateExpiredPredictions()
-    })
-
-    console.log("🚀 Service de prédictions démarré")
+    cron.schedule("*/5 * * * *", () => this.generatePredictions());
+    cron.schedule("* * * * *", () => this.validateExpiredPredictions());
+    console.log("🚀 Service de prédictions démarré avec mise à jour du cache Redis");
   }
 
-  // Obtenir les statistiques de performance
   async getPerformanceStats() {
-    const algorithms = ["linear_regression", "exponential_moving_average", "seasonal_analysis", "ensemble"]
-    const stats = {}
+    const cacheKey = "predictionStats";
+    const cached = await redisClient.get(cacheKey);
+    if (cached) return JSON.parse(cached);
 
+    const algorithms = ["linear_regression", "exponential_moving_average", "seasonal_analysis", "ensemble"];
+    const stats = {};
     for (const algorithm of algorithms) {
-      stats[algorithm] = await Prediction.getPerformanceStats(algorithm)
+      stats[algorithm] = await Prediction.getPerformanceStats(algorithm);
     }
 
-    return stats
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(stats));
+    return stats;
   }
 }
+
 
 module.exports = PredictionService

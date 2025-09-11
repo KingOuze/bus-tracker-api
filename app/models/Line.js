@@ -1,81 +1,113 @@
-const mongoose = require("mongoose")
+const mongoose = require('mongoose');
 
-
-const scheduleSchema = new mongoose.Schema({
-  dayType: {
+const lineSchema = new mongoose.Schema({
+  name: {
     type: String,
-    enum: ["weekday", "saturday", "sunday", "holiday"],
+    required: true
+  },
+  number: {
+    type: String,
     required: true,
+    unique: true
   },
-  times: [
-    {
-      stopId: String,
-      arrivalTime: String, // Format HH:MM
-      departureTime: String,
-    },
-  ],
-})
-
-const lineSchema = new mongoose.Schema(
-  {
-    lineId: { type: String, required: true, unique: true },
-    name: { type: String, required: true },
-    shortName: { type: String, required: true },
-    color: { type: String, default: "#007bff" },
-    description: String,
-    type: { type: String, enum: ["bus", "tram", "metro"], default: "bus" },
-    status: {
-      type: String,
-      enum: ["active", "inactive", "maintenance", "disrupted"],
-      default: "active",
-    },
-    company: {
-      type: String,
-      enum: ["DDD", "TATA", "BRT", "TER"],
-      default: "DDD",
-    },
-    stops: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Stop",
-      },
-    ], // Référence vers plusieurs arrêts
+  shortName: {
+    type: String
   },
-  { timestamps: true }
-)
-
-// Index pour les recherches
-lineSchema.index({ lineId: 1 })
-lineSchema.index({ status: 1 })
-
-
-// Méthode pour trouver l'arrêt le plus proche
-lineSchema.methods.findNearestStop = function (lat, lng, maxDistance = 1) {
-  const stops = this.getAllStops()
-  let nearest = null
-  let minDistance = maxDistance
-
-  stops.forEach((stop) => {
-    const distance = this.calculateDistance(lat, lng, stop.location.latitude, stop.location.longitude)
-    if (distance < minDistance) {
-      minDistance = distance
-      nearest = { ...stop.toObject(), distance }
+  color: {
+    type: String,
+    required: true,
+    match: /^#[0-9A-F]{6}$/i
+  },
+  startStop: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Stop',
+    required: true
+  },
+  endStop: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Stop',
+    required: true
+  },
+  totalStops: {
+    type: Number,
+    required: true,
+    min: 2
+  },
+  distance: {
+    type: Number,
+    required: true,
+    min: 0 // en kilomètres
+  },
+  duration: {
+    type: Number,
+    required: true,
+    min: 1 // en minutes
+  },
+  frequency: {
+    type: Number,
+    required: true,
+    min: 1 // en minutes entre les bus
+  },
+  status: {
+    type: String,
+    enum: ['active', 'maintenance', 'inactive'],
+    default: 'active'
+  },
+  dailyRides: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  assignedBuses: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Bus'
+  }],
+  // Informations détaillées sur les arrêts de la ligne
+  stops: [{
+    stop: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Stop'
+    },
+    order: {
+      type: Number,
+      required: true
+    },
+    distanceFromStart: {
+      type: Number,
+      default: 0
+    },
+    estimatedTime: {
+      type: Number,
+      default: 0
     }
-  })
+  }],
+  // Horaires de service
+  schedule: {
+    weekday: {
+      startTime: String,
+      endTime: String,
+      frequency: Number
+    },
+    weekend: {
+      startTime: String,
+      endTime: String,
+      frequency: Number
+    }
+  }
+}, {
+  timestamps: true,
+  toJSON: { 
+    transform: function(doc, ret) {
+      ret.id = ret._id;
+      ret.lineId = ret._id; // Pour compatibilité avec votre frontend
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  }
+});
 
-  return nearest
-}
+lineSchema.index({ status: 1 });
+lineSchema.index({ 'stops.stop': 1 });
 
-// Méthode utilitaire pour calculer la distance
-lineSchema.methods.calculateDistance = (lat1, lng1, lat2, lng2) => {
-  const R = 6371
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLng = ((lng2 - lng1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
-}
-
-module.exports = mongoose.model("Line", lineSchema)
+module.exports = mongoose.model('Line', lineSchema);
