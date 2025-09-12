@@ -1,34 +1,5 @@
 const mongoose = require("mongoose")
 
-const stopSchema = new mongoose.Schema({
-  stopId: {
-    type: String,
-    required: true,
-  },
-  name: {
-    type: String,
-    required: true,
-  },
-  location: {
-    latitude: {
-      type: Number,
-      required: true,
-    },
-    longitude: {
-      type: Number,
-      required: true,
-    },
-  },
-  order: {
-    type: Number,
-    required: true,
-  },
-  accessibility: {
-    wheelchairAccessible: Boolean,
-    sheltered: Boolean,
-    realTimeInfo: Boolean,
-  },
-})
 
 const scheduleSchema = new mongoose.Schema({
   dayType: {
@@ -47,72 +18,30 @@ const scheduleSchema = new mongoose.Schema({
 
 const lineSchema = new mongoose.Schema(
   {
-    lineId: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    name: {
-      type: String,
-      required: true,
-    },
-    shortName: {
-      type: String,
-      required: true,
-    },
-    color: {
-      type: String,
-      default: "#007bff",
-    },
-    textColor: {
-      type: String,
-      default: "#ffffff",
-    },
+    lineId: { type: String, required: true, unique: true },
+    name: { type: String, required: true },
+    shortName: { type: String, required: true },
+    color: { type: String, default: "#007bff" },
     description: String,
-    type: {
-      type: String,
-      enum: ["bus", "tram", "metro"],
-      default: "bus",
-    },
+    type: { type: String, enum: ["bus", "tram", "metro"], default: "bus" },
     status: {
       type: String,
       enum: ["active", "inactive", "maintenance", "disrupted"],
       default: "active",
     },
-    route: {
-      outbound: [stopSchema],
-      inbound: [stopSchema],
+    company: {
+      type: String,
+      enum: ["DDD", "TATA", "companyC"],
+      default: "DDD",
     },
-    schedule: [scheduleSchema],
-    frequency: {
-      peak: Number, // minutes
-      offPeak: Number,
-      weekend: Number,
-    },
-    operatingHours: {
-      start: String, // HH:MM
-      end: String, // HH:MM
-    },
-    accessibility: {
-      wheelchairAccessible: {
-        type: Boolean,
-        default: true,
+    stops: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Stop",
       },
-      audioAnnouncements: {
-        type: Boolean,
-        default: true,
-      },
-    },
-    statistics: {
-      totalStops: Number,
-      averageSpeed: Number,
-      onTimePerformance: Number,
-      dailyRidership: Number,
-    },
+    ], // Référence vers plusieurs arrêts
   },
-  {
-    timestamps: true,
-  },
+  { timestamps: true }
 )
 
 // Index pour les recherches

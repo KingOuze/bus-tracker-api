@@ -10,16 +10,16 @@ const socketIo = require("socket.io")
 require("dotenv").config()
 
 // Import routes
-const busRoutes = require("./routes/buses")
-const lineRoutes = require("./routes/lines")
+const busRoutes = require("./routes/buseRoute")
+const lineRoutes = require("./routes/lineRoute")
 const predictionRoutes = require("./routes/predictions")
 const alertRoutes = require("./routes/alerts")
 const statisticsRoutes = require("./routes/statistics")
 const authRoutes = require("./routes/auth")
+const stopRoutes = require("./routes/stopRoute")
 
 // Import middleware
 const errorHandler = require("./middleware/errorHandler")
-const { authenticateToken } = require("./middleware/auth")
 
 // Import services
 const PredictionService = require("./services/predictionService")
@@ -82,6 +82,7 @@ realtimeService.start()
 app.use("/api/auth", authRoutes)
 app.use("/api/buses", busRoutes)
 app.use("/api/lines", lineRoutes)
+app.use("/api/stops", stopRoutes)
 app.use("/api/predictions", predictionRoutes)
 app.use("/api/alerts", alertRoutes)
 app.use("/api/statistics", statisticsRoutes)
