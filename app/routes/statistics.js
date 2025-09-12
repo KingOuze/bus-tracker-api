@@ -4,7 +4,7 @@ const Bus = require("../models/Bus")
 const Line = require("../models/Line")
 const Alert = require("../models/Alert")
 const Prediction = require("../models/Prediction")
-const { authenticateToken } = require("../middleware/auth")
+const { authenticateToken } = require("../middlewares/auth")
 
 const router = express.Router()
 

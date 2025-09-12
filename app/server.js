@@ -8,21 +8,23 @@ const morgan = require("morgan")
 const http = require("http")
 const socketIo = require("socket.io")
 require("dotenv").config()
+const passport = require('./config/passport');
 
 // Import routes
-const busRoutes = require("./routes/buseRoute")
-const lineRoutes = require("./routes/lineRoute")
-const predictionRoutes = require("./routes/predictions")
-const alertRoutes = require("./routes/alerts")
+const userRoute = require("./routes/userRoute");
+const companyRoutes = require('./routes/companyRoute');
+const buseRoute = require("./routes/buseRoute")
+const lineRoute = require("./routes/lineRoute")
+const stopRoute = require("./routes/stopRoute");
+const predictionRoute = require("./routes/predictions")
+const alertRoutes = require("./routes/alertRoute")
 const statisticsRoutes = require("./routes/statistics")
-const authRoutes = require("./routes/auth")
-const stopRoutes = require("./routes/stopRoute")
+
 
 // Import middleware
-const errorHandler = require("./middleware/errorHandler")
+const errorHandler = require("./middlewares/errorHandler")
 
 // Import services
-const PredictionService = require("./services/predictionService")
 const RealtimeService = require("./services/realtimeService")
 
 const app = express()
@@ -35,6 +37,7 @@ const io = socketIo(server, {
 })
 
 // Middleware
+app.use(passport.initialize());
 app.use(helmet())
 app.use(compression())
 app.use(morgan("combined"))
@@ -67,25 +70,30 @@ app.use(express.urlencoded({ extended: true }))
 
 // Database connection
 mongoose
-  .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/bus-tracker", {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/bus-tracker")
   .then(() => console.log("✅ Connecté à MongoDB"))
   .catch((err) => console.error("❌ Erreur de connexion MongoDB:", err))
 
 // Socket.IO for real-time updates
 const realtimeService = new RealtimeService(io)
-realtimeService.start()
+//realtimeService.start()
 
-// Routes
-app.use("/api/auth", authRoutes)
-app.use("/api/buses", busRoutes)
-app.use("/api/lines", lineRoutes)
-app.use("/api/stops", stopRoutes)
-app.use("/api/predictions", predictionRoutes)
-app.use("/api/alerts", alertRoutes)
-app.use("/api/statistics", statisticsRoutes)
+
+// 🔹 Utilisation routes
+app.use("/api", userRoute);
+app.use('/api/companies', companyRoutes);
+app.use("/api/lines", lineRoute);
+app.use("/api/stops", stopRoute);
+app.use("/api/buses", buseRoute);
+app.use("/api/alerts", alertRoutes);
+app.use("/api/statistics", statisticsRoutes);
+app.use("/api/predictions", predictionRoute);
+
+// 🔹 Erreurs 404
+app.use((req, res) => {
+  res.status(404).json({ message: "Route non trouvée" });
+});
+
 
 // Health check
 app.get("/api/health", (req, res) => {
@@ -127,9 +135,6 @@ app.use("*", (req, res) => {
   })
 })
 
-// Start prediction service
-const predictionService = new PredictionService()
-predictionService.startPredictionUpdates()
 
 const PORT = process.env.PORT || 5000
 server.listen(PORT, () => {

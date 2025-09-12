@@ -1,100 +1,80 @@
 const express = require("express")
 const { body, query, param } = require("express-validator")
-const { handleValidationErrors } = require("../middleware/handleValidationResult")
-const { authenticateToken } = require("../middleware/auth")
-const buseController = require("../controllers/buseController")
+const { authenticateToken } = require("../middlewares/auth")
+const BusController = require('../controllers/buseController');
+const checkPermission = require('../middlewares/permissionMiddleware');
+const passport = require('../config/passport');
+const { requireRole } = require("../middlewares/auth");
+const requireAuth = passport.authenticate('jwt', { session: false });
 
-const {
-        getBuses,
-        getBusById,
-        createBus,
-        updateBus,
-        deleteBus,
-        getBusRoute,
-        updateBusLocation,
-      } = buseController
 
-const router = express.Router()
+const router = express.Router();
 
-// GET /api/buses - Obtenir tous les bus avec filtres
+// Middleware pour sécuriser toutes les routes
+router.use(authenticateToken);
+
+// Créer un bus
+router.post(
+  '/',
+  checkPermission('manage_buses'),
+  [
+    body('busNumber').notEmpty().withMessage('Le numéro du bus est requis'),
+    body('licensePlate').notEmpty().withMessage('La plaque d\'immatriculation est requise'),
+    body('model').notEmpty().withMessage('Le modèle du bus est requis'),
+    body('capacity').isInt({ min: 1 }).withMessage('La capacité doit être un nombre positif'),
+    body('status').optional().isIn(['active', 'maintenance', 'inactive']),
+    body('currentLine').notEmpty().withMessage('La ligne du bus est requise'),
+    body('driver').optional().isString()
+  ],
+  BusController.create
+);
+
+// Récupérer tous les bus avec pagination et filtre
 router.get(
-  "/",
+  '/',
+  checkPermission('view_buses'),
   [
-    query("line").optional().isString(),
-    query("status").optional().isIn(["active", "inactive", "maintenance", "delayed", "onTime"]),
-    query("lat").optional().isFloat({ min: -90, max: 90 }),
-    query("lng").optional().isFloat({ min: -180, max: 180 }),
-    query("radius").optional().isFloat({ min: 0.1, max: 50 }),
-    query("limit").optional().isInt({ min: 1, max: 100 }),
-    query("page").optional().isInt({ min: 1 }),
+    query('page').optional().isInt({ min: 1 }).toInt(),
+    query('limit').optional().isInt({ min: 1, max: 100 }).toInt()
   ],
-  handleValidationErrors,
-  getBuses
-)
+  BusController.getAll
+);
 
-// GET /api/buses/:busId - Obtenir un bus spécifique
-router.get("/:busId", [param("busId").isString().notEmpty()], handleValidationErrors, getBusById)
-
-// POST /api/buses - Créer un nouveau bus (authentification requise)
-router.post(
-  "/",
-  authenticateToken,
+// Récupérer un bus par ID
+router.get(
+  '/:id',
+  checkPermission('view_buses'),
   [
-    body("busId").isString().notEmpty(),
-    body("lineId").isString().notEmpty(),
-    body("currentStop").isString().notEmpty(),
-    body("nextStop").isString().notEmpty(),
-    body("destination").isString().notEmpty(),
-    body("location.latitude").isFloat({ min: -90, max: 90 }),
-    body("location.longitude").isFloat({ min: -180, max: 180 }),
-    body("estimatedArrival").isISO8601(),
+    param('id').isMongoId().withMessage('ID de bus invalide')
   ],
-  handleValidationErrors,
-  createBus,
-)
+  BusController.getById
+);
 
-// PUT /api/buses/:busId - Mettre à jour un bus
+// Mettre à jour un bus
 router.put(
-  "/:busId",
-  authenticateToken,
+  '/:id',
+  checkPermission('manage_buses'),
   [
-    param("busId").isString().notEmpty(),
-    body("location.latitude").optional().isFloat({ min: -90, max: 90 }),
-    body("location.longitude").optional().isFloat({ min: -180, max: 180 }),
-    body("speed").optional().isFloat({ min: 0 }),
-    body("delay").optional().isInt(),
-    body("occupancy.percentage").optional().isInt({ min: 0, max: 100 }),
-    body("status").optional().isIn(["active", "inactive", "maintenance"]),
+    param('id').isMongoId().withMessage('ID de bus invalide'),
+    body('busNumber').optional().notEmpty(),
+    body('licensePlate').optional().notEmpty(),
+    body('model').optional().notEmpty(),
+    body('capacity').optional().isInt({ min: 1 }),
+    body('status').optional().isIn(['active', 'maintenance', 'inactive']),
+    body('currentLine').optional().notEmpty(),
+    body('driver').optional().isString()
   ],
-  handleValidationErrors,
-  updateBus,
-)
+  BusController.update
+);
 
-// DELETE /api/buses/:busId - Supprimer un bus
+// Supprimer un bus
 router.delete(
-  "/:busId",
-  authenticateToken,
-  [param("busId").isString().notEmpty()],
-  handleValidationErrors,
-  deleteBus,
-)
-
-// GET /api/buses/:busId/route - Obtenir l'itinéraire d'un bus
-router.get("/:busId/route", [param("busId").isString().notEmpty()], handleValidationErrors, getBusRoute)
-
-// POST /api/buses/:busId/location - Mettre à jour la position d'un bus
-router.post(
-  "/:busId/location",
-  authenticateToken,
+  '/:id',
+  checkPermission('manage_buses'),
   [
-    param("busId").isString().notEmpty(),
-    body("latitude").isFloat({ min: -90, max: 90 }),
-    body("longitude").isFloat({ min: -180, max: 180 }),
-    body("speed").optional().isFloat({ min: 0 }),
-    body("direction").optional().isFloat({ min: 0, max: 360 }),
+    param('id').isMongoId().withMessage('ID de bus invalide')
   ],
-  handleValidationErrors,
-  updateBusLocation,
-)
+  BusController.delete
+);
 
-module.exports = router
+module.exports = router;

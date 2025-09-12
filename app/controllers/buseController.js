@@ -1,213 +1,106 @@
-const Bus = require("../models/Bus")
-const Line = require("../models/Line")
+const Bus = require('../models/Bus');
+const redisClient = require('../config/redis');
+const { validationResult } = require('express-validator');
 
-exports.getBuses = async (req, res) => {
+class BusController {
+
+  // Créer un bus
+  async create(req, res) {
     try {
-      const { line, status, lat, lng, radius = 5, limit = 50, page = 1 } = req.query
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-      const query = {}
+      const busData = req.body;
+      const bus = new Bus(busData);
+      await bus.save();
 
-      // Filtrer par ligne
-      if (line) {   
-        const lineDoc = await Line.findOne({ lineId: line })
-        if (lineDoc) {
-          query.lineId = lineDoc._id
-        }
-      }
+      await redisClient.del(`buses_${req.user.company}`);
+      return res.status(201).json(bus);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Erreur serveur' });
+    }
+  }
 
-      // Filtrer par statut
-      if (status) {
-        query.status = status
-      }
+  // Liste des bus avec pagination
+  async getAll(req, res) {
+    try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+      const skip = (page - 1) * limit;
 
-      // Filtrer par géolocalisation
-      if (lat && lng) {
-        query.location = {
-          $near: {
-            $geometry: {
-              type: "Point",
-              coordinates: [Number.parseFloat(lng), Number.parseFloat(lat)],
-            },
-            $maxDistance: Number.parseFloat(radius) * 1000, // convertir km en mètres
-          },
-        }
-      }
+      const cacheKey = `buses_${req.user.company}_page${page}_limit${limit}`;
+      const cachedData = await redisClient.get(cacheKey);
+      if (cachedData) return res.json(JSON.parse(cachedData));
 
-      const skip = (Number.parseInt(page) - 1) * Number.parseInt(limit)
-
-      const buses = await Bus.find(query)
-        .populate("lineId", "lineId name shortName color")
-        .sort({ lastUpdated: -1 })
-        .limit(Number.parseInt(limit))
+      const filter = { company: req.user.company };
+      const buses = await Bus.find(filter)
+        .populate('currentLine')
         .skip(skip)
+        .limit(limit)
+        .lean();
 
-      const total = await Bus.countDocuments(query)
+      const total = await Bus.countDocuments(filter);
 
-      res.json({
-        buses,
-        pagination: {
-          current: Number.parseInt(page),
-          total: Math.ceil(total / Number.parseInt(limit)),
-          count: buses.length,
-          totalBuses: total,
-        },
-      })
-    } catch (error) {
-      res.status(500).json({
-        error: "Erreur serveur",
-        message: error.message,
-      })
+      const response = {
+        data: buses,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      };
+
+      await redisClient.setEx(cacheKey, 60, JSON.stringify(response));
+
+      return res.json(response);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Erreur serveur' });
     }
- }
-
-exports.getBusById = async (req, res) => {
-  try {
-    const bus = await Bus.findOne({ busId: req.params.busId }).populate("lineId", "lineId name shortName color route")
-
-    if (!bus) {
-      return res.status(404).json({
-        error: "Bus non trouvé",
-        message: `Le bus ${req.params.busId} n'existe pas`,
-      })
-    }
-
-    res.json(bus)
-  } catch (error) {
-    res.status(500).json({
-      error: "Erreur serveur",
-      message: error.message,
-    })
   }
-}
 
-exports.createBus = async (req, res) => {
+  // Obtenir un bus par ID
+  async getById(req, res) {
     try {
-      // Vérifier que la ligne existe
-      const line = await Line.findOne({ lineId: req.body.lineId })
-      if (!line) {
-        return res.status(400).json({
-          error: "Ligne invalide",
-          message: `La ligne ${req.body.lineId} n'existe pas`,
-        })
-      }
-
-      const busData = {
-        ...req.body,
-        lineId: line._id,
-      }
-
-      const bus = new Bus(busData)
-      await bus.save()
-
-      const populatedBus = await Bus.findById(bus._id).populate("lineId", "lineId name shortName color")
-
-      res.status(201).json(populatedBus)
-    } catch (error) {
-      if (error.code === 11000) {
-        return res.status(400).json({
-          error: "Bus déjà existant",
-          message: `Le bus ${req.body.busId} existe déjà`,
-        })
-      }
-      res.status(500).json({
-        error: "Erreur serveur",
-        message: error.message,
-      })
+      const bus = await Bus.findById(req.params.id).populate('currentLine');
+      if (!bus) return res.status(404).json({ message: 'Bus non trouvé' });
+      return res.json(bus);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Erreur serveur' });
     }
   }
 
-exports.updateBus = async (req, res) => {
-  try {
-    const bus = await Bus.findOneAndUpdate(
-      { busId: req.params.busId },
-      req.body,
-      { new: true, runValidators: true }
-    ).populate("lineId", "lineId name shortName color")
-
-    if (!bus) {
-      return res.status(404).json({
-        error: "Bus non trouvé",
-        message: `Le bus ${req.params.busId} n'existe pas`,
-      })
-    }
-
-    res.json(bus)
-  } catch (error) {
-    res.status(500).json({
-      error: "Erreur serveur",
-      message: error.message,
-    })
-  }
-}
-
-exports.deleteBus = async (req, res) => {
-  try {
-    const bus = await Bus.findOneAndDelete({ busId: req.params.busId })
-    if (!bus) {
-      return res.status(404).json({
-        error: "Bus non trouvé",
-        message: `Le bus ${req.params.busId} n'existe pas`,
-      })
-    }
-    res.json({
-      message: "Bus supprimé avec succès",
-      busId: req.params.busId,
-    })
-    } catch (error) {
-      res.status(500).json({
-        error: "Erreur serveur",
-        message: error.message,
-      })
-    }
-}
-
-//obtient l'itinéraire d'un bus
-exports.getBusRoute = async (req, res) => {
-  try {
-    const bus = await Bus.findOne({ busId: req.params.busId }).populate("lineId", "route")
-
-    if (!bus) {
-      return res.status(404).json({
-        error: "Bus non trouvé",
-        message: `Le bus ${req.params.busId} n'existe pas`,
-      })
-    }
-
-    res.json({
-      busId: bus.busId,
-      currentRoute: bus.route,
-      lineRoute: bus.lineId.route,
-    })
-  } catch (error) {
-    res.status(500).json({
-      error: "Erreur serveur",
-      message: error.message,
-    })
-  }
-}
-
-exports.updateBusLocation = async (req, res) => {
+  // Mise à jour d’un bus
+  async update(req, res) {
     try {
-      const { latitude, longitude, speed, direction } = req.body
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-      const bus = await Bus.findOne({ busId: req.params.busId })
-      if (!bus) {
-        return res.status(404).json({
-          error: "Bus non trouvé",
-        })
-      }
+      const bus = await Bus.findByIdAndUpdate(req.params.id, req.body, { new: true });
+      if (!bus) return res.status(404).json({ message: 'Bus non trouvé' });
 
-      await bus.updateLocation(latitude, longitude, speed, direction)
-
-      res.json({
-        message: "Position mise à jour",
-        location: bus.location,
-        lastUpdated: bus.lastUpdated,
-      })
-    } catch (error) {
-      res.status(500).json({
-        error: "Erreur serveur",
-        message: error.message,
-      })
+      await redisClient.del(`buses_${req.user.company}`);
+      return res.json(bus);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Erreur serveur' });
     }
   }
+
+  // Supprimer un bus
+  async delete(req, res) {
+    try {
+      const bus = await Bus.findByIdAndDelete(req.params.id);
+      if (!bus) return res.status(404).json({ message: 'Bus non trouvé' });
+
+      await redisClient.del(`buses_${req.user.company}`);
+      return res.json({ message: 'Bus supprimé' });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Erreur serveur' });
+    }
+  }
+}
+
+module.exports = new BusController();
