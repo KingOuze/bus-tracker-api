@@ -2,18 +2,21 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const Joi = require("joi");
 const passport = require('../config/passport');
+const generateRandomPassword = require('../utils/password').generateRandomPassword;
 
 // 🔹 Validation des données
 const userSchema = Joi.object({
   firstName: Joi.string().max(50).required(),
   lastName: Joi.string().max(50).required(),
   email: Joi.string().email().required(),
-  password: Joi.string().min(6).required(),
   role: Joi.string().valid('simple','agent','admin','superAdmin','driver').required(),
   company: Joi.string().allow(null, ''), // facultatif si superAdmin
   phone: Joi.string().pattern(/^[\+]?[1-9][\d]{0,15}$/).allow(null, ''),
-  avatar: Joi.string().uri().allow(null, '')
-});
+  avatar: Joi.string().uri().allow(null, ''),
+  permissions: Joi.array()
+    .items(Joi.string()) // tableau de strings
+    .default([]) // valeur par défaut = tableau vide
+  })
 
 class UserController {
 
@@ -37,16 +40,21 @@ class UserController {
     }
 
     // Si l'utilisateur n'est pas superAdmin, forcer company = celle du user connecté
-    /*if (req.user.role !== 'superAdmin') {
+    if (req.user.role !== 'superAdmin') {
       value.company = req.user.company;
-    }*/
+    }
 
     const user = new User(value);
+    user.password = generateRandomPassword();; // Le mot de passe sera hashé par le pre-save hook
     await user.save();
+
+     // 3. Envoyer le mot de passe par email (ou le retourner à l'admin)
+    // Exemple avec Nodemailer (à adapter) :
+    // await sendEmail(email, "Vos identifiants", `Votre mot de passe temporaire : ${randomPassword}`);
 
     // Ne pas renvoyer le password
     const userResponse = user.toJSON();
-    delete userResponse.password;
+    //delete userResponse.password;
 
     res.status(201).json({ message: "Utilisateur créé", user: userResponse });
   } catch (err) {
@@ -152,32 +160,6 @@ class UserController {
   }
 
   // 🔹 Login
-/*  static async login(req, res) {
-    try {
-      const { email, password } = req.body;
-      const user = await User.findOne({ email });
-
-      if (!user) return res.status(400).json({ message: "Email ou mot de passe incorrect" });
-      if (user.status !== 'active') return res.status(403).json({ message: "Compte inactif ou suspendu" });
-
-      const valid = await user.comparePassword(password);
-      if (!valid) {
-        await user.incLoginAttempts();
-        return res.status(400).json({ message: "Email ou mot de passe incorrect" });
-      }
-
-      await user.resetLoginAttempts();
-
-      const token = jwt.sign({ id: user.id, role: user.role, company: user.company }, process.env.JWT_SECRET, { expiresIn: '8h' });
-
-      res.json({ token, user });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Erreur serveur" });
-    }
-  }*/
-
-
   static async login(req, res, next) {
     // Utiliser passport.authenticate comme middleware
     passport.authenticate('local', { session: false }, async (err, user, info) => {
@@ -203,10 +185,13 @@ class UserController {
         );
 
         const userData = await user.withCompanyAndPermissions(); // Méthode personnalisée pour inclure company et permissions
+        // Vérifier si c'est la première connexion
+        const isFirstLogin = user.isFirstLogin;
         
         res.json({ 
           token, 
-          user: userData
+          user: userData,
+          isFirstLogin
         });
         
       } catch (error) {
@@ -232,6 +217,37 @@ class UserController {
       res.status(500).json({ message: "Erreur serveur" });
     }
   }
+
+  //verifier le token
+  static async verifyToken(req, res) {
+    try {
+      const authHeader = req.headers['authorization'];
+      const token = authHeader && authHeader.split(' ')[1];
+      if (!token) return res.status(401).json({ message: "Token manquant" });
+      jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ message: "Token invalide", valid: false });
+        res.json({ message: "Token valide", valid: true});
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  }
+
+  // controllers/authController.js
+static async resetPassword(req, res) {
+    const { newPassword } = req.body;
+    const userId = req.user.id; // ID de l'utilisateur connecté
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
+    user.password = newPassword;
+    user.isFirstLogin = false; // Mettre à jour le flag de première connexion
+    await user.save();
+
+    res.json({ success: true });
+  };
+
 }
 
 module.exports = UserController;

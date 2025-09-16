@@ -64,6 +64,7 @@ const userSchema = new mongoose.Schema({
     max: 5
   },
   lockUntil: Date,
+  isFirstLogin: { type: Boolean, default: true },
   
   // Permissions spécifiques (optionnel)
   permissions: [{
@@ -264,6 +265,7 @@ userSchema.methods.withCompanyAndPermissions = async function () {
     ]
   };
 };
+
 
 
 module.exports = mongoose.model('User', userSchema);
