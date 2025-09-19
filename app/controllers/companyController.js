@@ -98,3 +98,24 @@ exports.deleteCompany = async (req, res) => {
   }
 };
 
+/**
+ * @desc Switch le status d'une compagnie
+ */
+exports.toggleCompanyStatus = async (req, res) => {
+  try {
+    const company = await Company.findById(req.params.id);
+    if (!company) {
+      return res.status(404).json({ message: "Compagnie non trouvée" });
+    }
+
+    if(req.user.role !== 'superAdmin' && company._id.toString() !== req.user.company.toString()) {
+      return res.status(403).json({ message: "Accès refusé" });
+    }
+    company.status = company.status === 'active' ? 'inactive' : 'active';
+    await company.save();
+    res.json({ message: "Status de la compagnie mis à jour", status: company.status });
+  } 
+  catch (error) {
+    return res.status(500).json({ message: "Erreur lors de la mise à jour du status de la compagnie", error: error.message });
+  }
+}

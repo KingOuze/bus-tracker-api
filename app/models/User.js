@@ -29,8 +29,8 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['simple', 'agent', 'admin', 'superAdmin', 'driver'],
-    default: 'simple',
+    enum: ['operator', 'admin', 'superAdmin', 'driver'],
+    default: 'operator',
     required: true
   },
   company: {
@@ -47,7 +47,8 @@ const userSchema = new mongoose.Schema({
     match: [/^[\+]?[1-9][\d]{0,15}$/, 'Veuillez entrer un numéro de téléphone valide']
   },
   avatar: {
-    type: String // URL de l'image
+    data: Buffer,      // Stockage des données binaires
+    contentType: String, // Type MIME de l'image (ex: 'image/png')
   },
   status: {
     type: String,

@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const companyController = require('../controllers/companyController');
-// const { authenticate, authorize } = require('../middlewares/permissionMiddleware'); // si tu veux restreindre
+const {authenticateToken, requireRole} = require("../middlewares/auth");
+
+router.use(authenticateToken); // Authentification
+router.use(requireRole(['admin', 'superAdmin'])); // Autorisation
 
 // Créer une compagnie
 router.post('/', companyController.createCompany);
@@ -17,5 +20,8 @@ router.put('/:id', companyController.updateCompany);
 
 // Supprimer une compagnie
 router.delete('/:id', companyController.deleteCompany);
+
+//switcher le status du compagnie
+router.patch('/:id/status', companyController.toggleCompanyStatus);
 
 module.exports = router;
