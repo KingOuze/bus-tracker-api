@@ -2,66 +2,80 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const Joi = require("joi");
 const passport = require('../config/passport');
-const generateRandomPassword = require('../utils/password').generateRandomPassword;
+//const generateRandomPassword = require('../utils/password').generateRandomPassword;
 
 // 🔹 Validation des données
 const userSchema = Joi.object({
   firstName: Joi.string().max(50).required(),
   lastName: Joi.string().max(50).required(),
   email: Joi.string().email().required(),
-  role: Joi.string().valid('simple','agent','admin','superAdmin','driver').required(),
+  role: Joi.string().valid('operator','admin','superAdmin','driver').required(),
   company: Joi.string().allow(null, ''), // facultatif si superAdmin
   phone: Joi.string().pattern(/^[\+]?[1-9][\d]{0,15}$/).allow(null, ''),
-  avatar: Joi.string().uri().allow(null, ''),
+  avatar: Joi.object({
+    data: Joi.binary(),       // Accepte les données binaires
+    contentType: Joi.string().valid('image/jpeg', 'image/png', 'image/gif') // Validation des types
+  }).allow(null),
   permissions: Joi.array()
     .items(Joi.string()) // tableau de strings
-    .default([]) // valeur par défaut = tableau vide
+    .default([]), // valeur par défaut = tableau vide
+  password: Joi.string().min(8).max(128).allow(null, ''),
   })
 
 class UserController {
 
   // 🔹 Créer un utilisateur
   static async createUser(req, res) {
-  try {
-    const data = req.body;
+    try {
+      const data = req.body;
 
-    // Validation avec Joi
-    const { error, value } = userSchema.validate(data);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+      // Traitement de l'avatar si un fichier est uploadé
+      if (req.avatar) {
+        data.avatar = {
+          data: req.avatar.buffer,       // Données binaires
+          contentType: req.avatar.mimetype // Type MIME
+        };
+      }
+      // Validation avec Joi
+      const { error, value } = userSchema.validate(data);
+      if (error) return res.status(400).json({ message: error.details[0].message });
 
-    // Vérifier si l'email existe déjà
-    const exists = await User.findOne({ email: value.email });
-    if (exists) return res.status(400).json({ message: "Email déjà utilisé" });
+      // Vérifier si l'email existe déjà
+      const exists = await User.findOne({ email: value.email });
+      if (exists) return res.status(400).json({ message: "Email déjà utilisé" });
 
-    // Vérifier si le numéro de téléphone existe déjà
-    if (value.phone) {
-      const existPhone = await User.findOne({ phone: value.phone });
-      if (existPhone) return res.status(400).json({ message: "Numéro de téléphone déjà utilisé" });
+      // Vérifier si le numéro de téléphone existe déjà
+      if (value.phone) {
+        const existPhone = await User.findOne({ phone: value.phone });
+        if (existPhone) return res.status(400).json({ message: "Numéro de téléphone déjà utilisé" });
+      }
+
+      // Si l'utilisateur n'est pas superAdmin, forcer company = celle du user connecté
+      if (req.user.role !== 'superAdmin') {
+        value.company = req.user.company;
+      }
+
+      const user = new User(value);
+      user.password = "Passer123"; // Mot de passe par défaut
+      await user.save();
+
+      // 3. Envoyer le mot de passe par email (ou le retourner à l'admin)
+      // Exemple avec Nodemailer (à adapter) :
+      // await sendEmail(email, "Vos identifiants", `Votre mot de passe temporaire : ${randomPassword}`);
+
+      // Ne pas renvoyer le password
+      const userResponse = user.toJSON();
+      delete userResponse.password;
+      const userObj = user.toObject(); // ou JSON
+      // avatarSrc sera inclus dans userObj à cause du virtual
+      userResponse.avatarSrc = userObj.avatarSrc;
+
+      res.status(201).json({ user: userResponse });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Erreur serveur" });
     }
-
-    // Si l'utilisateur n'est pas superAdmin, forcer company = celle du user connecté
-    if (req.user.role !== 'superAdmin') {
-      value.company = req.user.company;
-    }
-
-    const user = new User(value);
-    user.password = generateRandomPassword();; // Le mot de passe sera hashé par le pre-save hook
-    await user.save();
-
-     // 3. Envoyer le mot de passe par email (ou le retourner à l'admin)
-    // Exemple avec Nodemailer (à adapter) :
-    // await sendEmail(email, "Vos identifiants", `Votre mot de passe temporaire : ${randomPassword}`);
-
-    // Ne pas renvoyer le password
-    const userResponse = user.toJSON();
-    //delete userResponse.password;
-
-    res.status(201).json({ message: "Utilisateur créé", user: userResponse });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Erreur serveur" });
   }
-}
 
 
   // 🔹 Liste des utilisateurs avec filtre par company
@@ -87,9 +101,11 @@ class UserController {
         .limit(Number(limit))
         .sort({ createdAt: -1 });
 
+      if(!users) return res.status(404).json({ message: "Aucun utilisateur trouvé" });
+
       const total = await User.countDocuments(query);
 
-      res.json({ users, total, page: Number(page), pages: Math.ceil(total / limit) });
+      res.json({ users: users,total: total, page: Number(page), pages: Math.ceil(total / limit) });
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Erreur serveur" });
@@ -108,7 +124,9 @@ class UserController {
         return res.status(403).json({ message: "Accès refusé" });
       }
 
-      res.json({ user });
+      const usersWithAvatars = user.toObject(); // ou JSON
+
+      res.json({ user: usersWithAvatars });
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Erreur serveur" });
@@ -133,8 +151,20 @@ class UserController {
       if (avatar) user.avatar = avatar;
       if (role && req.user.role === 'superAdmin') user.role = role;
 
+      // Traitement de l’avatar si fichier uploadé via multer
+      if (req.file) {
+        user.avatar = {
+          data: req.file.buffer,
+          contentType: req.file.mimetype,
+        };
+      }
+
       await user.save();
-      res.json({ message: "Utilisateur mis à jour", user });
+
+      // Ne pas renvoyer password
+      delete user.password;
+      
+      res.json({ user: user });
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Erreur serveur" });
@@ -153,6 +183,23 @@ class UserController {
 
       await user.deleteOne();
       res.json({ message: "Utilisateur supprimé" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  }
+
+  //changer le status de l'utilisateur (actif/inactif)
+  static async toggleUserStatus(req, res) {
+    try {
+      const user = await User.findById(req.params.id);
+      if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
+      if (req.user.role !== 'superAdmin' && user.company.toString() !== req.user.company.toString()) {
+        return res.status(403).json({ message: "Accès refusé" });
+      }
+      user.isActive = !user.isActive;
+      await user.save();
+      res.json({ message: `Utilisateur ${user.isActive ? 'activé' : 'désactivé'}`, user });
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Erreur serveur" });
